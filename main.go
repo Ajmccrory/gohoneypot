@@ -1,30 +1,32 @@
 package main
 
 import (
-	"io"
-	"os"
-	"log"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
-	"log/syslog"
-	"encoding/json"
+	"os"
+	"time"
+	"crypto/tls"
 
 	"github.com/gliderlabs/ssh"
+	"github.com/patrickmn/go-cache"
 )
 
 type Attacker struct {
-	addr	 string
+	addr     string
 	username string
 	password string
 }
 
-func authHandler(ctx ssh.Context, a *Attacker) bool {
-	if len(a.username) > 0 {
-		return fmt.Sprintf("%s - %s:%s", a.addr, a.username, a.password)
+func authHandler(ctx ssh.Context, password string) bool {
+	if len(ctx.User()) > 0 {
+		log.Printf("User: %s connecting from %s with password: %s\n",
+	ctx.User(), ctx.RemoteAddr(), password)
 	}
-	return fmt.Sprintf("%s - SSH Key Attempt", a.addr)
+	return true
 }
 
 func (a *Attacker) String() string {
@@ -32,14 +34,13 @@ func (a *Attacker) String() string {
 		return fmt.Sprintf("%s - %s:%s", a.addr, a.username, a.password)
 	}
 	return fmt.Sprintf("%s - SSH Key Attempt", a.addr)
-	return &Attacker{addr, username, password}
 }
 
 func sessionHandler(s ssh.Session) {
 	io.WriteString(s, "Welcome!\n")
 }
 
-var c = cache.New(10**time.Minute, 300*time.Second)
+var c = cache.New(400*time.Minute , 300*time.Second)
 
 func notify(attacker *Attacker) {
 	log.Println("Attempt", attacker.String())
@@ -49,6 +50,14 @@ func notify(attacker *Attacker) {
 		c.Set(attacker.addr, 1, 0)
 	}
 }
+
+var conf = &Configuration{}
+
+type Configuration struct {
+	UserId string
+	Token  string
+}
+
 
 func pushNotify(attacker *Attacker) {
 	if conf.Token == "" || conf.UserId == "" {
@@ -65,14 +74,9 @@ func pushNotify(attacker *Attacker) {
 		return
 	}
 	log.Println(resp.Status)
-}
+} 
 
-var conf = &Configuration{}
 
-type Configuration struct {
-	UserID  string
-	Token	string
-}
 
 func main() {
 	file, err := os.Open("./conf.json")
@@ -81,17 +85,13 @@ func main() {
 	}
 	decoder := json.NewDecoder(file)
 	decoder.Decode(&conf)
-
-	logwriter ,e := syslog.New(syslog.LOG_INFO, os.Args[0])
-	if e == nil {
-		log.SetOutput(logwriter)
+	
+	s := &ssh.Server {
+		Addr:            ":2222",
+		Handler:         sessionHandler,
+		PasswordHandler: authHandler,
 	}
 
-	s := &ssh.Sever {
-		Addr:					":2222",
-		Handler:		sessionHandler,
-		PAsswordHandler:	authHandler,
-	}
 	log.Println("Starting ssh server on port 2222..")
 	log.Fatal(s.ListenAndServe())
 }
