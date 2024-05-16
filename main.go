@@ -81,7 +81,7 @@ func pushNotify(attacker *Attacker) {
 func main() {
 	file, err := os.Open("./conf.json")
 	if err != nil {
-		log.Fatal("Error opening config file")
+		log.Fatal("Error opening config file", err)
 	}
 	decoder := json.NewDecoder(file)
 	decoder.Decode(&conf)
